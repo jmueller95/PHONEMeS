@@ -93,20 +93,57 @@ run_phonemes <- function(inputObj,
 #' This function readd links between phosphosite and their correpsonding proteins
 #'
 #' @param phonemes_res phonemes result from the run_phonemes function
+#' @param kinase_groups_file optional file that contains a mapping of kinases to kinase groups.
+#' If this file was used to group nodes in the PKN together, then it should also be used here so the sites 'find' their
+#' kinase group again
 #' @return List of PHONEMES results and final inputObj, measObj, netObj used, with psites attached
 #' @export
 #'
-reattach_psites <- function(phonemes_res)
+reattach_psites <- function(phonemes_res, kinase_groups_file="NULL")
 {
+
+  if (kinase_groups_file != "NULL") {
+    kinase_groups_dict <- c()
+
+    # Open the file connection
+    file_connection <- file(kinase_groups_file, open = "r")
+
+    # Read and process each line
+    while (length(line <- readLines(file_connection, n = 1, warn = FALSE)) > 0) {
+      # Process the current line (replace this with your specific operation)
+      if (!startsWith(line, '#')) {
+        line <- gsub("//", "/", line)
+        linesplit <- strsplit(line, '\t')
+        kinase_groups_dict[linesplit[[1]][1]] <- linesplit[[1]][2]
+      }
+    }
+
+# Close the file connection
+close(file_connection)
+  }
+
   sif <- phonemes_res$res$weightedSIF
   att <- phonemes_res$res$nodesAttributes
 
-  phospho_prots <- data.frame(sif[grepl("_",sif$Node2),3])
+  #cplex (or Carnival) turned the '//'s into '__'s, we turn it back into a single '/'
+  sif$Node1 <- gsub("__", "/", sif$Node1)
+  sif$Node2 <- gsub("__", "/", sif$Node2)
+  att$Node <- gsub("__", "/", att$Node)
+
+  phospho_prots <- data.frame(sif[grepl("_", sif$Node2), 3])
   names(phospho_prots) <- "Node1"
-  phospho_prots$Node2 <- gsub("_.*","",phospho_prots$Node1)
+  if (kinase_groups_file != "NULL") {
+    phospho_prots$Node2_Intermediate <- gsub("_.*", "", phospho_prots$Node1)
+    phospho_prots$Node2 <- ifelse(
+      phospho_prots$Node2_Intermediate %in% names(kinase_groups_dict),
+      as.character(kinase_groups_dict[phospho_prots$Node2_Intermediate]),
+      phospho_prots$Node2_Intermediate)
+  }else {
+    phospho_prots$Node2 <- gsub("_.*", "", phospho_prots$Node1)
+  }
   phospho_prots$Sign <- 1
   phospho_prots$Weight <- 1
-  phospho_prots <- phospho_prots[phospho_prots$Node2 %in% att$Node,]
+  phospho_prots <- phospho_prots[phospho_prots$Node2 %in% att$Node, c('Node1', 'Sign', 'Node2', 'Weight')]
 
   if(length(phospho_prots[,1]) > 0)
   {
